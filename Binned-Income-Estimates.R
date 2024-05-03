@@ -1,6 +1,6 @@
 #4/30/24, initiated by BS
-#Goal: Preparing income data estimates
-#To calculate various medians from binned income data (includes 3 methods on 2020 ACS data)
+#Goal: Preparing all income data
+#To prep and tidy income data, mostly working on binned data calculations
 
 
 #Libraries
@@ -37,7 +37,7 @@ Data <- load_variables(YR4, "acs5")
 #2020 Median HH income by urban/suburban
 Med_hh_inc_2020 <- get_acs(
   geography = GEOG, 
-  variables = "B19013A_001", 
+  variables = "B19013_001", 
   state = ST,
   year = YR4,
   output = "wide") 
@@ -57,26 +57,26 @@ Med_hh_inc_2020 <- get_acs(
 #Load binned data and tidy
 Household_Inc_2020 <- get_acs(
   geography = GEOG, 
-  table = "B19001A", 
+  table = "B19001", 
   state = ST,
   year = YR4,
   output = "wide") %>%
-  rename(Below10000 = "B19001A_002E",
-         Btw10000_14999 = "B19001A_003E",
-         Btw15000_19999 = "B19001A_004E",
-         Btw20000_24999 = "B19001A_005E",
-         Btw25000_29999 = "B19001A_006E",
-         Btw30000_34999 = "B19001A_007E",
-         Btw35000_39999 = "B19001A_008E",
-         Btw40000_44999 = "B19001A_009E",
-         Btw45000_49999 = "B19001A_010E",
-         Btw50000_59999 = "B19001A_011E",
-         Btw60000_74999 = "B19001A_012E",
-         Btw75000_99999 = "B19001A_013E",
-         Btw100000_124999 = "B19001A_014E",
-         Btw125000_149999 = "B19001A_015E",
-         Btw150000_199999 = "B19001A_016E",
-         Above200000 = "B19001A_017E") %>%
+  rename(Below10000 = "B19001_002E",
+         Btw10000_14999 = "B19001_003E",
+         Btw15000_19999 = "B19001_004E",
+         Btw20000_24999 = "B19001_005E",
+         Btw25000_29999 = "B19001_006E",
+         Btw30000_34999 = "B19001_007E",
+         Btw35000_39999 = "B19001_008E",
+         Btw40000_44999 = "B19001_009E",
+         Btw45000_49999 = "B19001_010E",
+         Btw50000_59999 = "B19001_011E",
+         Btw60000_74999 = "B19001_012E",
+         Btw75000_99999 = "B19001_013E",
+         Btw100000_124999 = "B19001_014E",
+         Btw125000_149999 = "B19001_015E",
+         Btw150000_199999 = "B19001_016E",
+         Above200000 = "B19001_017E") %>%
   select(GEOID, Below10000, Btw10000_14999, Btw15000_19999, Btw20000_24999, Btw25000_29999, Btw30000_34999,
          Btw35000_39999, Btw40000_44999, Btw45000_49999, Btw50000_59999, Btw60000_74999, Btw75000_99999,
          Btw100000_124999, Btw125000_149999, Btw150000_199999, Above200000) %>%
@@ -398,8 +398,8 @@ Median_Income_Binned_Tract_2020 <- Richmond %>%
   left_join(Med_Inc_RSUB_2020, by="GEOID") %>%
   left_join(Med_Inc_Stepbins_2020, by="GEOID") %>%
   left_join(Med_Inc_Splinebins_2020, by="GEOID") %>%
-  rename(Med_hh_inc_E = B19013A_001E,
-         Med_hh_inc_MoE = B19013A_001M) %>%
+  rename(Med_hh_inc_E = B19013_001E,
+         Med_hh_inc_MoE = B19013_001M) %>%
   mutate(RSUB_Difference = Median_Income_RSUB - Med_hh_inc_E,
          Stepbin_Difference = Median_Income_Stepbin - Med_hh_inc_E,
          Splinebin_Difference = Median_Income_Splinebin - Med_hh_inc_E) %>%
@@ -437,7 +437,7 @@ MoE_Test <- Median_Income_Binned_Tract_2020 %>%
 #2020 Median HH income for Richmond
 Med_hh_inc_2020 <- get_acs(
   geography = "cbsa", 
-  variables = "B19013A_001", 
+  variables = "B19013_001", 
   #state = ST,
   year = YR4,
   output = "wide") %>%
@@ -654,8 +654,8 @@ Med_Binned_Inc_Compared_MSA_2020 <- Med_hh_inc_2020 %>%
   left_join(Med_Inc_RSUB_2020, by="Geography") %>%
   left_join(Med_Inc_Stepbins_2020, by="Geography") %>%
   left_join(Med_Inc_Splinebins_2020, by="Geography") %>%
-  rename(Med_hh_inc_E = B19013A_001E,
-         Med_hh_inc_MoE = B19013A_001M) %>%
+  rename(Med_hh_inc_E = B19013_001E,
+         Med_hh_inc_MoE = B19013_001M) %>%
   mutate(RSUB_Difference = Median_Income_RSUB - Med_hh_inc_E,
          Stepbin_Difference = Median_Income_Stepbin - Med_hh_inc_E,
          Splinebin_Difference = Median_Income_Splinebin - Med_hh_inc_E) %>%
@@ -719,23 +719,23 @@ Measurement_Plot <- rbind(RSUB_Plot_Data, Step_Plot_Data, Spline_Plot_Data)
 
 # Plot using ggplot2
 ggplot(data = Measurement_Plot) +
-  annotate("rect", xmin = 250, xmax = 9400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 10600, xmax = 14400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 15600, xmax = 19400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 20600, xmax = 24400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 25600, xmax = 29400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 30600, xmax = 34400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 35600, xmax = 39400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 40600, xmax = 44400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 45600, xmax = 49400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 50600, xmax = 59400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 60600, xmax = 74400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 75600, xmax = 99400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 100600, xmax = 124400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 125600, xmax = 149400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 150600, xmax = 199400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  annotate("rect", xmin = 200600, xmax = 499000, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
-  geom_vline(xintercept = 83079, linetype = "longdash", color = "black", linewidth = 0.8, alpha = 0.75) +
+  annotate("rect", xmin = 250, xmax = 9400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 10600, xmax = 14400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 15600, xmax = 19400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 20600, xmax = 24400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 25600, xmax = 29400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 30600, xmax = 34400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 35600, xmax = 39400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 40600, xmax = 44400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 45600, xmax = 49400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 50600, xmax = 59400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 60600, xmax = 74400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 75600, xmax = 99400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 100600, xmax = 124400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 125600, xmax = 149400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 150600, xmax = 199400, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 200600, xmax = 499000, ymin = 0.00000001, ymax = 0.0000086, fill = "#ffedde", alpha = 0.75) +
+  geom_vline(xintercept = 71223, linetype = "longdash", color = "black", linewidth = 0.8, alpha = 0.75) +
   geom_line(aes(x = Income, y = Density, color = Measurement, size = Measurement)) +
   scale_color_manual(name = "Method",
                      values = c("#7570b3", "#66a61e", "#e7298a"),
@@ -761,11 +761,11 @@ ggplot(data = Measurement_Plot) +
                      expand = c(0, 5000)) +
   scale_y_continuous(expand = c(0, 0.00000003),
                      labels = NULL) +
-  geom_text(x = 260000, y = 0.0000062, label = "Median household income \nfor Richmond MSA", 
+  geom_text(x = 205000, y = 0.0000071, label = "Median household income \nfor Richmond MSA", 
             color = "black", size = 4, fontface = "bold") +
-  geom_text(x = 260000, y = 0.0000057, label = "ACS 2016-2020, Table B19013.", 
-            color = "black", size = 4, fontface = "italic") +
-  geom_segment(aes(x = 205000, y = 0.000006, xend = 85000, yend = 0.0000059), 
+  geom_text(x = 205000, y = 0.0000066, label = "ACS 2016-2020, Table B19013.", 
+            color = "darkgrey", size = 4, fontface = "italic") +
+  geom_segment(aes(x = 153000, y = 0.0000069, xend = 73000, yend = 0.0000071), 
                arrow = arrow(length = unit(0.5, "cm")), color = "black") +
   guides(colour = guide_legend(override.aes = list(size=5, alpha = 1))) 
 
