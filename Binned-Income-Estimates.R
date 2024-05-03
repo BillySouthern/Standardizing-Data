@@ -1,6 +1,6 @@
 #4/30/24, initiated by BS
-#Goal: Preparing all income data
-#To prep and tidy income data, mostly working on binned data calculations
+#Goal: Preparing income data estimates
+#To calculate various medians from binned income data (includes 3 methods on 2020 ACS data)
 
 
 #Libraries
@@ -77,10 +77,9 @@ Household_Inc_2020 <- get_acs(
          Btw125000_149999 = "B19001A_015E",
          Btw150000_199999 = "B19001A_016E",
          Above200000 = "B19001A_017E") %>%
-  mutate(Above150000 = Btw150000_199999 + Above200000) %>%
   select(GEOID, Below10000, Btw10000_14999, Btw15000_19999, Btw20000_24999, Btw25000_29999, Btw30000_34999,
          Btw35000_39999, Btw40000_44999, Btw45000_49999, Btw50000_59999, Btw60000_74999, Btw75000_99999,
-         Btw100000_124999, Btw125000_149999, Above150000, Btw150000_199999, Above200000) %>%
+         Btw100000_124999, Btw125000_149999, Btw150000_199999, Above200000) %>%
   mutate(Year = YR4,
          GEOID = as.character(GEOID)) %>%
   mutate(STATE = str_sub(GEOID, 1, 2),
@@ -103,12 +102,9 @@ Geography <- read_sf(paste0(onedrivepath, "Mapping Richmond/Index/Index_2020/Ric
 #Remove NAs/0 as function fails on NAs and 0 values
 Geography <- Geography %>%
   left_join(Household_Inc_2020, by = "GEOID") %>%
-  select(-Btw150000_199999, -Above200000) %>%
   pivot_longer(cols = matches("^B|^A"),
                names_to = "Inc_Threshold",
                values_to = "Count") %>%
-  # group_by(Inc_Threshold) %>%         #Group here to test on the entire geography rather than subunit (MSA vs tract)
-  # summarise(Count = sum(Count)) %>%
   mutate(
     lower_limit = case_when(
       Inc_Threshold == "Below10000" ~ 0,
@@ -125,11 +121,12 @@ Geography <- Geography %>%
       Inc_Threshold == "Btw75000_99999" ~ 75000,
       Inc_Threshold == "Btw100000_124999" ~ 100000,
       Inc_Threshold == "Btw125000_149999" ~ 125000,
-      Inc_Threshold == "Above150000" ~ 150000,
+      Inc_Threshold == "Btw150000_199999" ~ 150000,
+      Inc_Threshold == "Above200000" ~ 200000,
       TRUE ~ NA_real_
     ),
     upper_limit = case_when(
-      Inc_Threshold == "Below10000" ~ 10000,
+      Inc_Threshold == "Below10000" ~ 9999,
       Inc_Threshold == "Btw10000_14999" ~ 14999,
       Inc_Threshold == "Btw15000_19999" ~ 19999,
       Inc_Threshold == "Btw20000_24999" ~ 24999,
@@ -143,19 +140,20 @@ Geography <- Geography %>%
       Inc_Threshold == "Btw75000_99999" ~ 99999,
       Inc_Threshold == "Btw100000_124999" ~ 124999,
       Inc_Threshold == "Btw125000_149999" ~ 149999,
-      Inc_Threshold == "Above150000" ~ NA,
+      Inc_Threshold == "Btw150000_199999" ~ 199999,
+      Inc_Threshold == "Above200000" ~ NA,
       TRUE ~ NA_real_
     )) %>%
   group_by(GEOID) %>% #
   filter(!all(Count == 0)) %>% #Filter tracts with no incomes as this breaks the function (Rejoin after)
   ungroup() %>%
   arrange( #Data must be in order for function
-          GEOID, 
-          lower_limit 
-          ) 
+    GEOID, 
+    lower_limit 
+  ) 
 
 #------------------
-#PARETO MEDIANS
+#RECURSIVE SUBDIVISION MEDIANS
 
 #First, input the income data and geography
 # Get unique identifier (in this case GEOIDs from the census tracts)
@@ -171,41 +169,41 @@ for (geo_id in unique_geoids) {
   object <- Geography %>%
     filter(GEOID == geo_id)
   
-# Create object and parameters
-binedges <- object$upper_limit
-bincounts <- object$Count
+  # Create object and parameters
+  binedges <- object$upper_limit
+  bincounts <- object$Count
   
-# Use Pareto command to calculate midpoint statistics
-rsb <- rsubbins(binedges, bincounts, tailShape = "pareto")
+  # Use RSUB command to calculate midpoint statistics with pareto
+  rsb <- rsubbins(binedges, bincounts, tailShape = "pareto")
   
-# Calculate mean of midpoint
-Mean_Income <- integral(function(x) {1 - rsb$rsubCDF(x)}, 0, rsb$E)
-
-# Calculate median of midpoint
-Median_Income <- uniroot(function(x) rsb$rsubCDF(x) - 0.5, lower = 0, upper = rsb$E)$root
+  # Calculate mean of midpoint
+  Mean_Income <- integral(function(x) {1 - rsb$rsubCDF(x)}, 0, rsb$E)
   
-# Calculate general statistics (mean, variance, SD, Thiels, Gini)
-stats <- stats_from_distribution(rsb)
+  # Calculate median of midpoint
+  Median_Income <- uniroot(function(x) rsb$rsubCDF(x) - 0.5, lower = 0, upper = rsb$E)$root
   
-# Extract statistics values
-mean_val <- unname(stats["mean"])
-variance_val <- unname(stats["variance"])
-sd_val <- unname(stats["SD"])
-theils_val <- unname(stats["Theil"])
-gini_val <- unname(stats["Gini"])
+  # Calculate general statistics (mean, variance, SD, Thiels, Gini)
+  stats <- stats_from_distribution(rsb)
   
-# Create a data frame with the results for the current GEOID/unique identifier
-result_geo <- data.frame(
-  GEOID = geo_id,
-  Median_Income = Median_Income,
-  Mean_Income = Mean_Income,
-  Variance = variance_val,
-  SD = sd_val,
-  Theils = theils_val,
-  Gini = gini_val)
+  # Extract statistics values
+  mean_val <- unname(stats["mean"])
+  variance_val <- unname(stats["variance"])
+  sd_val <- unname(stats["SD"])
+  theils_val <- unname(stats["Theil"])
+  gini_val <- unname(stats["Gini"])
   
-# Append the result for the current GEOID to the overall result data frame
-result <- bind_rows(result, result_geo)
+  # Create a data frame with the results for the current GEOID/unique identifier
+  result_geo <- data.frame(
+    GEOID = geo_id,
+    Median_Income = Median_Income,
+    Mean_Income = Mean_Income,
+    Variance = variance_val,
+    SD = sd_val,
+    Theils = theils_val,
+    Gini = gini_val)
+  
+  # Append the result for the current GEOID to the overall result data frame
+  result <- bind_rows(result, result_geo)
 }
 
 # View the resulting data frame
@@ -223,12 +221,12 @@ Richmond <- read_sf(paste0(onedrivepath, "Mapping Richmond/Index/Index_2020/Rich
   select(GEOID, Landscape_Five)
 
 #Rejoin result to overarching geography to include those tracts with no income
-Med_Inc_Pareto_2020 <- result %>%
-  rename_with(~ paste0(., "_Pareto"), -GEOID) %>%
+Med_Inc_RSUB_2020 <- result %>%
+  rename_with(~ paste0(., "_RSUB"), -GEOID) %>%
   full_join(Richmond, by="GEOID")
 
 #--------------
-#STEP BINS APPROACH
+#LINEAR INTERPOLATION WITH STEP BINS
 
 # Get unique GEOIDs from the census tracts/unique identifiers from observations
 unique_geoids <- unique(Geography$GEOID)
@@ -248,7 +246,9 @@ for (geo_id in unique_geoids) {
   bincounts <- object$Count
   
   # Use stepbins to calculate stepbin statistics
-  sb <- stepbins(binedges, bincounts)
+  #We use onebin as the results are most closest to med_hh_inc at the highest values
+  sb <- stepbins(binedges, bincounts,
+                 tailShape = c("onebin"))
   
   # Mean of stepbins
   mean_income <- integral(function(x){1-sb$stepCDF(x)}, 0, sb$E)
@@ -295,9 +295,11 @@ Med_Inc_Stepbins_2020 <- result %>%
   rename_with(~ paste0(., "_Stepbin"), -GEOID) %>%
   full_join(Richmond, by="GEOID") 
 
+#Save binned data
+saveRDS(Med_Inc_Stepbins_2020, file.path(onedrivepath, "Mapping Richmond/Binned Income Data/2020/Med_Inc_Stepbins_2020.rds"))
 
 #--------------
-#SPLINE BINS APPROACH
+#CUBIC SPLINE APPROACH
 
 # Create an empty dataframe to store result
 result <- data.frame(GEOID = character(), Median_Income = numeric(), Mean_Income = numeric(),
@@ -393,17 +395,17 @@ Med_Inc_Splinebins_2020 <- result %>%
 #object result against median income to measure differences
 Median_Income_Binned_Tract_2020 <- Richmond %>%
   left_join(Med_hh_inc_2020, by="GEOID") %>%
-  left_join(Med_Inc_Pareto_2020, by="GEOID") %>%
+  left_join(Med_Inc_RSUB_2020, by="GEOID") %>%
   left_join(Med_Inc_Stepbins_2020, by="GEOID") %>%
   left_join(Med_Inc_Splinebins_2020, by="GEOID") %>%
   rename(Med_hh_inc_E = B19013A_001E,
          Med_hh_inc_MoE = B19013A_001M) %>%
-  mutate(Pareto_Difference = Median_Income_Pareto - Med_hh_inc_E,
+  mutate(RSUB_Difference = Median_Income_RSUB - Med_hh_inc_E,
          Stepbin_Difference = Median_Income_Stepbin - Med_hh_inc_E,
          Splinebin_Difference = Median_Income_Splinebin - Med_hh_inc_E) %>%
-  select(GEOID, Pareto_Difference, Stepbin_Difference, Splinebin_Difference,
+  select(GEOID, RSUB_Difference, Stepbin_Difference, Splinebin_Difference,
          Med_hh_inc_E, Med_hh_inc_MoE, 
-         Median_Income_Pareto, Median_Income_Stepbin, Median_Income_Splinebin)
+         Median_Income_RSUB, Median_Income_Stepbin, Median_Income_Splinebin)
 
 #Draft plot
 ggplot(Med_Inc_Stepbins_2020) +
@@ -412,12 +414,12 @@ ggplot(Med_Inc_Stepbins_2020) +
 #To test whether Medians fall within Med HH income Margin of Error
 MoE_Test <- Median_Income_Binned_Tract_2020 %>%
   mutate(
-    Pareto_beyond_margin = abs(Pareto_Difference) > Med_hh_inc_MoE,
+    RSUB_beyond_margin = abs(RSUB_Difference) > Med_hh_inc_MoE,
     Stepbin_beyond_margin = abs(Stepbin_Difference) > Med_hh_inc_MoE,
     Splinebin_beyond_margin = abs(Splinebin_Difference) > Med_hh_inc_MoE
   ) %>%
   summarize(
-    Pareto_count = sum(Pareto_beyond_margin, na.rm = TRUE),
+    RSUB_count = sum(RSUB_beyond_margin, na.rm = TRUE),
     Stepbin_count = sum(Stepbin_beyond_margin, na.rm = TRUE),
     Splinebin_count = sum(Splinebin_beyond_margin, na.rm = TRUE)
   )
@@ -425,7 +427,7 @@ MoE_Test <- Median_Income_Binned_Tract_2020 %>%
 
 #Save Income data
 #Tract data
-saveRDS(Median_Income_Binned_Tract_2020, file.path(onedrivepath, "Mapping Richmond/Richmond Data/Income in 2020/Med_Binned_Inc_Compared_2020.rds"))
+# saveRDS(Median_Income_Binned_Tract_2020, file.path(onedrivepath, "Mapping Richmond/Richmond Data/Income in 2020/Med_Binned_Inc_Compared_2020.rds"))
 
 #------------------------------------------------------------------------------
 #Working at the larger scale (in this case, the functions above for the whole MSA)
@@ -456,7 +458,6 @@ Geography <- read_sf(paste0(onedrivepath, "Mapping Richmond/Index/Index_2020/Ric
 #Remove NAs/0 as function fails on NAs and 0 values
 Geography <- Geography %>%
   left_join(Household_Inc_2020, by = "GEOID") %>%
-  select(-Btw150000_199999, -Above200000) %>%
   pivot_longer(cols = matches("^B|^A"),
                names_to = "Inc_Threshold",
                values_to = "Count") %>%
@@ -478,11 +479,12 @@ Geography <- Geography %>%
       Inc_Threshold == "Btw75000_99999" ~ 75000,
       Inc_Threshold == "Btw100000_124999" ~ 100000,
       Inc_Threshold == "Btw125000_149999" ~ 125000,
-      Inc_Threshold == "Above150000" ~ 150000,
+      Inc_Threshold == "Btw150000_199999" ~ 150000,
+      Inc_Threshold == "Above200000" ~ 200000,
       TRUE ~ NA_real_
     ),
     upper_limit = case_when(
-      Inc_Threshold == "Below10000" ~ 10000,
+      Inc_Threshold == "Below10000" ~ 9999,
       Inc_Threshold == "Btw10000_14999" ~ 14999,
       Inc_Threshold == "Btw15000_19999" ~ 19999,
       Inc_Threshold == "Btw20000_24999" ~ 24999,
@@ -496,7 +498,8 @@ Geography <- Geography %>%
       Inc_Threshold == "Btw75000_99999" ~ 99999,
       Inc_Threshold == "Btw100000_124999" ~ 124999,
       Inc_Threshold == "Btw125000_149999" ~ 149999,
-      Inc_Threshold == "Above150000" ~ NA,
+      Inc_Threshold == "Btw150000_199999" ~ 199999,
+      Inc_Threshold == "Above200000" ~ NA,
       TRUE ~ NA_real_
     )) %>%
   arrange( #Data must be in order for function
@@ -504,7 +507,7 @@ Geography <- Geography %>%
   ) 
 
 #-------------
-#PARETO MEDIAN 
+#RECURSIVE SUBDIVISION MEDIANS 
 
 # Create object and parameters
 binedges <- Geography$upper_limit
@@ -536,7 +539,7 @@ theils_val <- unname(stats["Theil"])
 gini_val <- unname(stats["Gini"])
 
 # Create a data frame with the results
-Med_Inc_Pareto_2020 <- data.frame(
+Med_Inc_RSUB_2020 <- data.frame(
   Geography = paste(CITY),
   Median_Income = Mean_Income,
   Mean_Income = Median_Income,
@@ -545,82 +548,83 @@ Med_Inc_Pareto_2020 <- data.frame(
   Theils = theils_val,
   Gini = gini_val
 )  %>%
-  rename_with(~ paste0(., "_Pareto"), -Geography) 
+  rename_with(~ paste0(., "_RSUB"), -Geography) 
 
 
 #STEP BINS APPROACH
 
-  # Create object and parameters
-  binedges <- Geography$upper_limit
-  bincounts <- Geography$Count
-  
-  # Use stepbins to calculate stepbin statistics
-  sb <- stepbins(binedges, bincounts)
-  
-  # Mean of stepbins
-  mean_income <- integral(function(x){1-sb$stepCDF(x)}, 0, sb$E)
-  
-  # Median of stepbins
-  median_income <- uniroot(function(x) sb$stepCDF(x) - 0.5, lower = 0, upper = sb$E)$root
-  
-  # Calculate general statistics (variance, SD, Theils, Gini)
-  stats <- stats_from_distribution(sb)
-  
-  # Extract statistics values
-  variance_val <- unname(stats["variance"])
-  sd_val <- unname(stats["SD"])
-  theils_val <- unname(stats["Theil"])
-  gini_val <- unname(stats["Gini"])
-  
-  # Create a data frame with the results
-Med_Inc_Stepbins_2020 <- data.frame(
-    Geography = paste(CITY),
-    Median_Income = median_income,
-    Mean_Income = mean_income,
-    Variance = variance_val,
-    SD = sd_val,
-    Theils = theils_val,
-    Gini = gini_val
-  )  %>%
-    rename_with(~ paste0(., "_Stepbin"), -Geography) 
-  
-
-
-#SPLINE APPROACH
-
-  # Create object and parameters
+# Create object and parameters
 binedges <- Geography$upper_limit
 bincounts <- Geography$Count
 
-  # Creating spline bins
-  splb <- splinebins(binedges, bincounts)
+# Use stepbins to calculate stepbin statistics
+sb <- stepbins(binedges, bincounts,
+               tailShape = c("onebin"))
 
-  # Mean of spline
-  mean_income <- integral(function(x){1-splb$splineCDF(x)}, 0, splb$E) # closer to given mean
+# Mean of stepbins
+mean_income <- integral(function(x){1-sb$stepCDF(x)}, 0, sb$E)
 
-  # Median of spline
-  median_income <- uniroot(function(x) splb$splineCDF(x) - 0.5, lower = 0, upper = splb$E)$root
+# Median of stepbins
+median_income <- uniroot(function(x) sb$stepCDF(x) - 0.5, lower = 0, upper = sb$E)$root
 
-  # Calculate general statistics (variance, SD, Theils, Gini)
-  stats <- stats_from_distribution(splb)
+# Calculate general statistics (variance, SD, Theils, Gini)
+stats <- stats_from_distribution(sb)
 
-  # Extract statistics values
-  variance_val <- unname(stats["variance"])
-  sd_val <- unname(stats["SD"])
-  theils_val <- unname(stats["Theil"])
-  gini_val <- unname(stats["Gini"])
+# Extract statistics values
+variance_val <- unname(stats["variance"])
+sd_val <- unname(stats["SD"])
+theils_val <- unname(stats["Theil"])
+gini_val <- unname(stats["Gini"])
 
-  # Create a data frame with the results
-  Med_Inc_Splinebins_2020 <- data.frame(
-    Geography = paste(CITY),
-    Median_Income = median_income,
-    Mean_Income = mean_income,
-    Variance = variance_val,
-    SD = sd_val,
-    Theils = theils_val,
-    Gini = gini_val
-  )  %>%
-    rename_with(~ paste0(., "_Splinebin"), -Geography) 
+# Create a data frame with the results
+Med_Inc_Stepbins_2020 <- data.frame(
+  Geography = paste(CITY),
+  Median_Income = median_income,
+  Mean_Income = mean_income,
+  Variance = variance_val,
+  SD = sd_val,
+  Theils = theils_val,
+  Gini = gini_val
+)  %>%
+  rename_with(~ paste0(., "_Stepbin"), -Geography) 
+
+
+
+#CUBIC SPLINE APPROACH
+
+# Create object and parameters
+binedges <- Geography$upper_limit
+bincounts <- Geography$Count
+
+# Creating spline bins
+splb <- splinebins(binedges, bincounts)
+
+# Mean of spline
+mean_income <- integral(function(x){1-splb$splineCDF(x)}, 0, splb$E) # closer to given mean
+
+# Median of spline
+#median_income <- uniroot(function(x) splb$splineCDF(x) - 0.5, lower = 0, upper = splb$E)$root
+
+# Calculate general statistics (variance, SD, Theils, Gini)
+stats <- stats_from_distribution(splb)
+
+# Extract statistics values
+variance_val <- unname(stats["variance"])
+sd_val <- unname(stats["SD"])
+theils_val <- unname(stats["Theil"])
+gini_val <- unname(stats["Gini"])
+
+# Create a data frame with the results
+Med_Inc_Splinebins_2020 <- data.frame(
+  Geography = paste(CITY),
+  Median_Income = median_income,
+  Mean_Income = mean_income,
+  Variance = variance_val,
+  SD = sd_val,
+  Theils = theils_val,
+  Gini = gini_val
+)  %>%
+  rename_with(~ paste0(., "_Splinebin"), -Geography) 
 
 
 # #Combine above medians
@@ -644,30 +648,30 @@ bincounts <- Geography$Count
 
 
 #object result against median income to measure differences
-  Med_Binned_Inc_Compared_MSA_2020 <- Med_hh_inc_2020 %>%
+Med_Binned_Inc_Compared_MSA_2020 <- Med_hh_inc_2020 %>%
   rename(Geography = NAME) %>%
   mutate(Geography = ifelse(Geography == "Richmond, VA Metro Area", "Richmond MSA", Geography)) %>%
-  left_join(Med_Inc_Pareto_2020, by="Geography") %>%
+  left_join(Med_Inc_RSUB_2020, by="Geography") %>%
   left_join(Med_Inc_Stepbins_2020, by="Geography") %>%
   left_join(Med_Inc_Splinebins_2020, by="Geography") %>%
   rename(Med_hh_inc_E = B19013A_001E,
          Med_hh_inc_MoE = B19013A_001M) %>%
-  mutate(Pareto_Difference = Median_Income_Pareto - Med_hh_inc_E,
+  mutate(RSUB_Difference = Median_Income_RSUB - Med_hh_inc_E,
          Stepbin_Difference = Median_Income_Stepbin - Med_hh_inc_E,
          Splinebin_Difference = Median_Income_Splinebin - Med_hh_inc_E) %>%
-  select(Pareto_Difference, Stepbin_Difference, Splinebin_Difference,
+  select(RSUB_Difference, Stepbin_Difference, Splinebin_Difference,
          Med_hh_inc_E, Med_hh_inc_MoE, 
-         Median_Income_Pareto, Median_Income_Stepbin, Median_Income_Splinebin)
+         Median_Income_RSUB, Median_Income_Stepbin, Median_Income_Splinebin)
 
 #To test whether Medians fall within Med HH income Margin of Error
 MoE_Test <- Med_Binned_Inc_Compared_MSA_2020 %>%
   mutate(
-    Pareto_beyond_margin = abs(Pareto_Difference) > Med_hh_inc_MoE,
+    RSUB_beyond_margin = abs(RSUB_Difference) > Med_hh_inc_MoE,
     Stepbin_beyond_margin = abs(Stepbin_Difference) > Med_hh_inc_MoE,
     Splinebin_beyond_margin = abs(Splinebin_Difference) > Med_hh_inc_MoE
   ) %>%
   summarize(
-    Pareto_count = sum(Pareto_beyond_margin, na.rm = TRUE),
+    RSUB_count = sum(RSUB_beyond_margin, na.rm = TRUE),
     Stepbin_count = sum(Stepbin_beyond_margin, na.rm = TRUE),
     Splinebin_count = sum(Splinebin_beyond_margin, na.rm = TRUE)
   )
@@ -677,20 +681,20 @@ MoE_Test <- Med_Binned_Inc_Compared_MSA_2020 %>%
 
 
 #Plotting one geography for comparison
-  #Use Spline as an x reference
+#Use Spline as an x reference
 
-#PARETO
+#RSUB
 # Generate x-values from spline for all three to create a standard
 Spline_X <- seq(0, 500000, length.out = 500)
 
 # Generate y-values
-Pareto_Y <- rsb$rsubPDF(Spline_X)
+RSUB_Y <- rsb$rsubPDF(Spline_X)
 
 # Create a dataframe
-Pareto_Plot_Data <- data.frame(x = Spline_X, y = Pareto_Y) %>%
+RSUB_Plot_Data <- data.frame(x = Spline_X, y = RSUB_Y) %>%
   rename(Income = x,
          Density = y) %>%
-  mutate(Measurement = "Pareto")
+  mutate(Measurement = "RSUB")
 
 #STEP
 # Generate y-values
@@ -711,40 +715,65 @@ Spline_Plot_Data <- data.frame(Income = Spline_X, Density = Spline_Y) %>%
   mutate(Measurement = "Spline")
 
 #Join objects in long form for one plot
-Measurement_Plot <- rbind(Pareto_Plot_Data, Step_Plot_Data, Spline_Plot_Data)
+Measurement_Plot <- rbind(RSUB_Plot_Data, Step_Plot_Data, Spline_Plot_Data)
 
 # Plot using ggplot2
 ggplot(data = Measurement_Plot) +
-  geom_vline(xintercept = 83079, linetype = "longdash", color = "darkgrey", linewidth = 1, alpha = 0.75) +
+  annotate("rect", xmin = 250, xmax = 9400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 10600, xmax = 14400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 15600, xmax = 19400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 20600, xmax = 24400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 25600, xmax = 29400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 30600, xmax = 34400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 35600, xmax = 39400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 40600, xmax = 44400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 45600, xmax = 49400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 50600, xmax = 59400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 60600, xmax = 74400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 75600, xmax = 99400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 100600, xmax = 124400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 125600, xmax = 149400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 150600, xmax = 199400, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  annotate("rect", xmin = 200600, xmax = 499000, ymin = 0.00000001, ymax = 0.0000077, fill = "#ffedde", alpha = 0.75) +
+  geom_vline(xintercept = 83079, linetype = "longdash", color = "black", linewidth = 0.8, alpha = 0.75) +
   geom_line(aes(x = Income, y = Density, color = Measurement, size = Measurement)) +
   scale_color_manual(name = "Method",
-                        values = c("#7570b3", "#e7298a", "#66a61e")) +
+                     values = c("#7570b3", "#66a61e", "#e7298a"),
+                     labels =c("Recursive\nsubdivision\nsmoothing", 
+                               "Cubic spline\ninterpolation", 
+                               "Linear\ninterpolation\nstep function")) +
   scale_size_manual(name = "Method",
                     values = c(2.5, 1.25, 1),
                     guide = "none") +
   theme_minimal() +
+  theme(legend.spacing = unit(1.0, 'cm'),
+        legend.text = element_text(margin = margin(t = 10)),
+        panel.grid.major.x = element_line(size = 0, color = "grey"),
+        panel.grid.minor.x = element_line(size = 0),
+        panel.grid.major.y = element_line(color = "grey", size = 0),
+        panel.grid.minor.y = element_line(color = "lightgrey", size = 0)) +
   labs(y = NULL, 
        x = "Household Income",
-       caption = "") +
+       caption = "Note: Background shading represents bins within ACS Table B19001.") +
   scale_x_continuous(labels = label_dollar(),
                      breaks = c(0, 50000, 100000, 200000, 300000, 400000,
                                 500000),
                      expand = c(0, 5000)) +
   scale_y_continuous(expand = c(0, 0.00000003),
                      labels = NULL) +
-  geom_text(x = 260000, y = 0.0000062, label = "Median household income \nfor Richmond MSA.", 
+  geom_text(x = 260000, y = 0.0000062, label = "Median household income \nfor Richmond MSA", 
             color = "black", size = 4, fontface = "bold") +
   geom_text(x = 260000, y = 0.0000057, label = "ACS 2016-2020, Table B19013.", 
-            color = "darkgrey", size = 4, fontface = "italic") +
-  geom_segment(aes(x = 205000, y = 0.000006, xend = 86000, yend = 0.0000059), 
+            color = "black", size = 4, fontface = "italic") +
+  geom_segment(aes(x = 205000, y = 0.000006, xend = 85000, yend = 0.0000059), 
                arrow = arrow(length = unit(0.5, "cm")), color = "black") +
   guides(colour = guide_legend(override.aes = list(size=5, alpha = 1))) 
-  
+
 #Save object
-# ggsave("Binned_Inc_Methods.png",
-#        path = "~/desktop",
-#        width = 9,
-#        height = 6,
-#        units = "in",
-#        dpi = 500)
+ggsave("Binned_Inc_Methods.png",
+       path = "~/desktop",
+       width = 9,
+       height = 6,
+       units = "in",
+       dpi = 500)
 
