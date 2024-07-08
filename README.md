@@ -3,11 +3,11 @@ A respository which presents accessible ways of standardizing census geographies
 
 This so far includes:
 
-NHGIS Crosswalks from 1990 to 2020, with subyears included too.
+- NHGIS Crosswalks from 1990 to 2020, with subyears included too.
   On census datasets:
 
-Median household income counts:
+- Median household income counts:
   Methods include:
 
-Inflation-adjusting income:
+- Inflation-adjusting income:
   Years from 1990 to 2020, for USA $.
